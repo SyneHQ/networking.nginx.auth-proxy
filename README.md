@@ -57,5 +57,10 @@ The proxy is configured through environment variables:
 - `USER_TABLE`: User table name (default: "users")
 - `USER_ID_FIELD`: User ID field name (default: "id")
 
+### Security Configuration
+- `ALLOW_BYPASS`: Enable bypass functionality for development/testing (default: "false")
+- `BYPASS_HEADER`: Header name for bypass authentication (default: "X-Auth-Bypass")
+- `BYPASS_HEADER_VALUE`: Required header value for bypass (default: "true")
+
 ### Feature Flags
 - `ENABLE_DB_CHECK`: Enable database user verification (default: "false")
