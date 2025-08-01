@@ -1,12 +1,4 @@
 #!/bin/bash
-
-# Add host entries for local development
-echo "127.0.0.1 kole" >> /etc/hosts
-echo "127.0.0.1 paywall" >> /etc/hosts
-echo "127.0.0.1 db_api" >> /etc/hosts
-
-printenv
-
 # Create log directory and ensure proper permissions
 mkdir -p /var/log/nginx
 mkdir -p /usr/local/openresty/nginx/logs
