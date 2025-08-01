@@ -1,0 +1,19 @@
+{
+  "name": "auth-proxy",
+  "private": true,
+  "scripts": {
+    "decrypt-jwt": "bun run decrypt_jwe.ts",
+    "build": "bun build decrypt_jwe.ts --outfile dist/decrypt_jwe.js",
+    "compile": "bun build decrypt_jwe.ts --compile --outfile dist/decrypt"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@panva/hkdf": "^1.2.1",
+    "jose": "^6.0.12"
+  }
+}
