@@ -11,6 +11,9 @@ end
 -- Environment configuration
 local JWT_SECRET = get_env("JWT_SECRET", "your_secret")
 local JWT_SALT = get_env("JWT_SALT", "authjs.session-token")
+local ALLOW_BYPASS = get_env("ALLOW_BYPASS", "false")
+local BYPASS_HEADER = get_env("BYPASS_HEADER", "X-Bypass-Auth")
+local BYPASS_HEADER_VALUE = get_env("BYPASS_HEADER_VALUE", "true")
 local REDIS_HOST = get_env("REDIS_HOST", "redis")
 local REDIS_PORT = tonumber(get_env("REDIS_PORT", "6379"))
 local REDIS_TIMEOUT = tonumber(get_env("REDIS_TIMEOUT", "1000"))
@@ -113,6 +116,15 @@ local function parse_cookies(cookie_string)
         end
     end
     return cookies
+end
+
+-- get request headers
+local headers = ngx.req.get_headers()
+local bypass_header_value = headers[BYPASS_HEADER]
+
+if ALLOW_BYPASS == "true" and bypass_header_value and bypass_header_value == BYPASS_HEADER_VALUE then
+    ngx.log(ngx.INFO, "Bypassing auth for request: ", ngx.var.request_uri)
+    return ngx.exit(ngx.HTTP_OK)
 end
 
 local cookies = parse_cookies(ngx.var.http_cookie)
