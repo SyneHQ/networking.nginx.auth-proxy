@@ -141,6 +141,9 @@ end
 
 local user_id = jwt_obj.payload.sub
 
+-- we need to set user_id in the request headers
+ngx.req.set_header("X-User-Id", user_id)
+
 if ENABLE_DB_CHECK == "true" then
     if not check_user(user_id) then
         return ngx.exit(ngx.HTTP_FORBIDDEN)
