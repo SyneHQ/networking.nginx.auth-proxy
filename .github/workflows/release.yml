@@ -68,18 +68,15 @@ jobs:
           COMMITS=$(echo "$COMMITS" | tr '\n' ';')
           echo "ALL_COMMITS=$COMMITS" >> $GITHUB_ENV
 
-      - name: Create Release
+      - name: Create a Release
+        uses: softprops/action-gh-release@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_VERSION: ${{ env.NEW_VERSION }}
-          DOCKERLIKE_RELEASE_NAME: ${{ env.DOCKERLIKE_RELEASE_NAME }}
-          BRANCH: ${{ github.ref }}
-        run: |
-          echo "Release notes: $COMMITS" >> release_notes.md
-          gh release create ${NEW_VERSION} \
-            --title "${DOCKERLIKE_RELEASE_NAME}" \
-            --notes-file release_notes.md \
-            --target ${BRANCH}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          name: ${{ env.DOCKERLIKE_RELEASE_NAME }}
+          notes: ${{ env.COMMITS }}
+          tag_name: ${{ env.NEW_VERSION }}
+          body_path: release_notes.md
 
   build-and-push:
     needs: create-release
