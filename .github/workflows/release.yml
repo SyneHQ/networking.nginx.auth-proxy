@@ -67,6 +67,7 @@ jobs:
           COMMITS=$(git log --oneline --no-merges --pretty=format:"%s" ${LAST_TAG}..HEAD)
           COMMITS=$(echo "$COMMITS" | tr '\n' ';')
           echo "ALL_COMMITS=$COMMITS" >> $GITHUB_ENV
+          echo "NEW_VERSION=${NEW_VERSION} \n\n${COMMITS}" > release_notes.md
 
       - name: Create a Release
         uses: softprops/action-gh-release@v2
