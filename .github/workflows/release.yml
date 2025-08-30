@@ -11,7 +11,7 @@ env:
 
 jobs:
   create-release:
-    runs-on: self-hosted
+    runs-on: [gh-runner-dind, runner-pool]
     permissions:
       contents: write
       packages: write
@@ -83,7 +83,7 @@ jobs:
 
   build-and-push:
     needs: create-release
-    runs-on: self-hosted
+    runs-on: [gh-runner-dind, runner-pool]
     permissions:
       contents: write
       packages: write
