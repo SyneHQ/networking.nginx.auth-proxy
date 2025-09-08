@@ -12,7 +12,7 @@ COPY tsconfig.json .
 
 RUN bun run compile
 
-FROM openresty/openresty:alpine as runner
+FROM openresty/openresty:alpine-fat as runner
 
 RUN apk add --no-cache \
     luarocks
