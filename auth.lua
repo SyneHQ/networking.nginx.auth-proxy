@@ -1,7 +1,7 @@
 local jwt = require "resty.jwt"
 local cjson = require "cjson"
-local redis = require "resty.redis"
-local pgmoon = require "pgmoon"
+-- local redis = require "resty.redis"
+-- local pgmoon = require "pgmoon"
 
 -- Get environment variables with defaults
 local function get_env(name, default)
@@ -14,21 +14,21 @@ local JWT_SALT = get_env("JWT_SALT", "authjs.session-token")
 local ALLOW_BYPASS = get_env("ALLOW_BYPASS", "false")
 local BYPASS_HEADER = get_env("BYPASS_HEADER", "X-Bypass-Auth")
 local BYPASS_HEADER_VALUE = get_env("BYPASS_HEADER_VALUE", "true")
-local REDIS_HOST = get_env("REDIS_HOST", "redis")
-local REDIS_PORT = tonumber(get_env("REDIS_PORT", "6379"))
-local REDIS_TIMEOUT = tonumber(get_env("REDIS_TIMEOUT", "1000"))
-local REDIS_CACHE_TTL = tonumber(get_env("REDIS_CACHE_TTL", "600"))
-local REDIS_PASSWORD = get_env("REDIS_PASSWORD", "")
-local REDIS_KEY_PREFIX = get_env("REDIS_KEY_PREFIX", "auth:")
+-- local REDIS_HOST = get_env("REDIS_HOST", "redis")
+-- local REDIS_PORT = tonumber(get_env("REDIS_PORT", "6379"))
+-- local REDIS_TIMEOUT = tonumber(get_env("REDIS_TIMEOUT", "1000"))
+-- local REDIS_CACHE_TTL = tonumber(get_env("REDIS_CACHE_TTL", "600"))
+-- local REDIS_PASSWORD = get_env("REDIS_PASSWORD", "")
+-- local REDIS_KEY_PREFIX = get_env("REDIS_KEY_PREFIX", "auth:")
 
-local POSTGRES_HOST = get_env("POSTGRES_HOST", "postgres")
-local POSTGRES_PORT = get_env("POSTGRES_PORT", "5432")
-local POSTGRES_DB = get_env("POSTGRES_DB", "your_db")
-local POSTGRES_USER = get_env("POSTGRES_USER", "your_user")
-local POSTGRES_PASSWORD = get_env("POSTGRES_PASSWORD", "your_password")
+-- local POSTGRES_HOST = get_env("POSTGRES_HOST", "postgres")
+-- local POSTGRES_PORT = get_env("POSTGRES_PORT", "5432")
+-- local POSTGRES_DB = get_env("POSTGRES_DB", "your_db")
+-- local POSTGRES_USER = get_env("POSTGRES_USER", "your_user")
+-- local POSTGRES_PASSWORD = get_env("POSTGRES_PASSWORD", "your_password")
 
-local USER_TABLE = get_env("USER_TABLE", "users")
-local USER_ID_FIELD = get_env("USER_ID_FIELD", "id")
+-- local USER_TABLE = get_env("USER_TABLE", "users")
+-- local USER_ID_FIELD = get_env("USER_ID_FIELD", "id")
 
 local ENABLE_DB_CHECK = get_env("ENABLE_DB_CHECK", "false")
 

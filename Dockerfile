@@ -12,17 +12,11 @@ COPY tsconfig.json .
 
 RUN bun run compile
 
-FROM openresty/openresty:alpine-fat as runner
+FROM openresty/openresty:alpine as runner
 
 RUN apk add --no-cache \
-    luarocks \
-    postgresql-dev \
-    gcc \
-    libc-dev
-
+    luarocks
 RUN luarocks install lua-resty-jwt
-RUN luarocks install lua-resty-redis
-RUN luarocks install pgmoon
 RUN luarocks install luaossl
 
 COPY --from=builder /app/dist/decrypt /usr/local/bin/decrypt
