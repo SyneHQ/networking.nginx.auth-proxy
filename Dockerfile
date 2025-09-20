@@ -10,7 +10,7 @@ RUN bun install
 COPY decrypt_jwe.ts .
 COPY tsconfig.json .
 
-RUN bun run compile
+RUN bun run compile --minify
 
 FROM openresty/openresty:alpine-fat as runner
 

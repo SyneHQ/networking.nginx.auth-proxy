@@ -31,30 +31,60 @@ local BYPASS_HEADER_VALUE = get_env("BYPASS_HEADER_VALUE", "true")
 -- local USER_ID_FIELD = get_env("USER_ID_FIELD", "id")
 
 local ENABLE_DB_CHECK = get_env("ENABLE_DB_CHECK", "false")
-
 -- Validate JWT (Auth.js JWE token)
 local function validate_jwt(token)
-    -- Use the TypeScript decoder to decrypt the JWE token
-    local cmd = string.format("/usr/local/bin/decrypt '%s' '%s' '%s'", token, JWT_SECRET, JWT_SALT)
+    ngx.log(ngx.ERR, "🔐 [Line 30] validate_jwt: Starting JWT validation for token")
     
-    local handle = io.popen(cmd)
-    local result = handle:read("*a")
-    handle:close()
+    -- Prepare request body for the decrypt service
+    local request_body = cjson.encode({
+        token = token,
+        secret = JWT_SECRET,
+        salt = JWT_SALT
+    })
+    -- Use nginx internal location to verify JWE token on port 3000
+    local res = ngx.location.capture("/verify-jwe", {
+        method = ngx.HTTP_POST,
+        body = request_body,
+        headers = {
+            ["Content-Type"] = "application/json"
+        }
+    })
     
-    if not result or result == "" then
+    if not res then
+        ngx.log(ngx.ERR, "❌ [Line 47] validate_jwt: Failed to capture internal location /verify-jwe")
         return false
     end
     
-    local ok, decoded = pcall(cjson.decode, result)
-    if not ok or not decoded then
+    if res.status ~= 200 then
+        ngx.log(ngx.ERR, "❌ [Line 52] validate_jwt: /verify-jwe returned status " .. res.status)
         return false
     end
+    
+    if not res.body or res.body == "" then
+        ngx.log(ngx.ERR, "❌ [Line 57] validate_jwt: Empty response body from /verify-jwe")
+        return false
+    end
+    
+    local ok, response = pcall(cjson.decode, res.body)
+    if not ok or not response then
+        ngx.log(ngx.ERR, "❌ [Line 63] validate_jwt: Failed to decode JSON response from /verify-jwe")
+        return false
+    end
+    
+    if not response.success or not response.payload then
+        ngx.log(ngx.ERR, "❌ [Line 68] validate_jwt: Decrypt service returned error: " .. (response.error or "unknown"))
+        return false
+    end
+    
+    local decoded = response.payload
     
     -- Check if token is expired
     if decoded.exp and decoded.exp < ngx.time() then
+        ngx.log(ngx.ERR, "⏰ [Line 76] validate_jwt: Token expired, exp=" .. decoded.exp .. " current=" .. ngx.time())
         return false
     end
     
+    ngx.log(ngx.INFO, "✅ [Line 80] validate_jwt: JWT validation successful")
     return { payload = decoded }
 end
 
