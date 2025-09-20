@@ -129,7 +129,7 @@ export async function decode(params: { token: string, secret: string, salt: stri
 // 🚀 High-performance Bun server
 const server = Bun.serve({
   port: process.env.PORT || 3000,
-  hostname: process.env.HOSTNAME || "localhost",
+  hostname: "0.0.0.0",
   async fetch(req) {
     console.log(`📥 [Line 120] fetch: Incoming request - ${req.method} ${req.url}`);
 
