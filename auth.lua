@@ -33,7 +33,7 @@ local BYPASS_HEADER_VALUE = get_env("BYPASS_HEADER_VALUE", "true")
 local ENABLE_DB_CHECK = get_env("ENABLE_DB_CHECK", "false")
 -- Validate JWT (Auth.js JWE token)
 local function validate_jwt(token)
-    ngx.log(ngx.ERR, "🔐 [Line 30] validate_jwt: Starting JWT validation for token")
+    ngx.log(ngx.ERR, "🔐 [Line 36] validate_jwt: Starting JWT validation for token")
     
     -- Prepare request body for the decrypt service
     local request_body = cjson.encode({
@@ -51,28 +51,28 @@ local function validate_jwt(token)
     })
     
     if not res then
-        ngx.log(ngx.ERR, "❌ [Line 47] validate_jwt: Failed to capture internal location /verify-jwe")
+        ngx.log(ngx.ERR, "❌ [Line 54] validate_jwt: Failed to capture internal location /verify-jwe")
         return false
     end
     
     if res.status ~= 200 then
-        ngx.log(ngx.ERR, "❌ [Line 52] validate_jwt: /verify-jwe returned status " .. res.status)
+        ngx.log(ngx.ERR, "❌ [Line 59] validate_jwt: /verify-jwe returned status " .. res.status)
         return false
     end
     
     if not res.body or res.body == "" then
-        ngx.log(ngx.ERR, "❌ [Line 57] validate_jwt: Empty response body from /verify-jwe")
+        ngx.log(ngx.ERR, "❌ [Line 64] validate_jwt: Empty response body from /verify-jwe")
         return false
     end
     
     local ok, response = pcall(cjson.decode, res.body)
     if not ok or not response then
-        ngx.log(ngx.ERR, "❌ [Line 63] validate_jwt: Failed to decode JSON response from /verify-jwe")
+        ngx.log(ngx.ERR, "❌ [Line 70] validate_jwt: Failed to decode JSON response from /verify-jwe")
         return false
     end
     
     if not response.success or not response.payload then
-        ngx.log(ngx.ERR, "❌ [Line 68] validate_jwt: Decrypt service returned error: " .. (response.error or "unknown"))
+        ngx.log(ngx.ERR, "❌ [Line 75] validate_jwt: Decrypt service returned error: " .. (response.error or "unknown"))
         return false
     end
     
@@ -80,11 +80,11 @@ local function validate_jwt(token)
     
     -- Check if token is expired
     if decoded.exp and decoded.exp < ngx.time() then
-        ngx.log(ngx.ERR, "⏰ [Line 76] validate_jwt: Token expired, exp=" .. decoded.exp .. " current=" .. ngx.time())
+        ngx.log(ngx.ERR, "⏰ [Line 83] validate_jwt: Token expired, exp=" .. decoded.exp .. " current=" .. ngx.time())
         return false
     end
     
-    ngx.log(ngx.INFO, "✅ [Line 80] validate_jwt: JWT validation successful")
+    ngx.log(ngx.INFO, "✅ [Line 87] validate_jwt: JWT validation successful")
     return { payload = decoded }
 end
 
