@@ -118,12 +118,18 @@ local function parse_cookies(cookie_string)
     return cookies
 end
 
+-- Allow OPTIONS requests to pass through without authentication for CORS preflight
+if ngx.var.request_method == "OPTIONS" then
+    ngx.log(ngx.INFO, "🚀 Line 105 - auth.lua:main() - Allowing OPTIONS preflight request: ", ngx.var.request_uri)
+    return ngx.exit(ngx.HTTP_OK)
+end
+
 -- get request headers
 local headers = ngx.req.get_headers()
 local bypass_header_value = headers[BYPASS_HEADER]
 
 if ALLOW_BYPASS == "true" and bypass_header_value and bypass_header_value == BYPASS_HEADER_VALUE then
-    ngx.log(ngx.INFO, "Bypassing auth for request: ", ngx.var.request_uri)
+    ngx.log(ngx.INFO, "🔓 Line 112 - auth.lua:main() - Bypassing auth for request: ", ngx.var.request_uri)
     return ngx.exit(ngx.HTTP_OK)
 end
 
@@ -131,11 +137,13 @@ local cookies = parse_cookies(ngx.var.http_cookie)
 local token = cookies[JWT_SALT]
 
 if not token then
+    ngx.log(ngx.ERR, "❌ Line 119 - auth.lua:main() - No JWT token found in cookies for request: ", ngx.var.request_uri)
     return ngx.exit(ngx.HTTP_UNAUTHORIZED)
 end
 
 local jwt_obj = validate_jwt(token)
 if not jwt_obj then
+    ngx.log(ngx.ERR, "❌ Line 125 - auth.lua:validate_jwt() - Invalid JWT token for request: ", ngx.var.request_uri)
     return ngx.exit(ngx.HTTP_UNAUTHORIZED)
 end
 
@@ -143,9 +151,12 @@ local user_id = jwt_obj.payload.sub
 
 -- we need to set user_id in the request headers
 ngx.req.set_header("X-User-Id", user_id)
+ngx.log(ngx.INFO, "✅ Line 132 - auth.lua:main() - Authentication successful for user: ", user_id, " request: ", ngx.var.request_uri)
 
 if ENABLE_DB_CHECK == "true" then
     if not check_user(user_id) then
+        ngx.log(ngx.ERR, "❌ Line 136 - auth.lua:check_user() - User not found in database: ", user_id, " request: ", ngx.var.request_uri)
         return ngx.exit(ngx.HTTP_FORBIDDEN)
     end
+    ngx.log(ngx.INFO, "✅ Line 139 - auth.lua:check_user() - Database check passed for user: ", user_id)
 end
