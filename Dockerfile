@@ -1,25 +1,9 @@
-FROM oven/bun:alpine as builder
-
-WORKDIR /app
-
-COPY package.json .
-COPY bun.lock .
-
-RUN bun install
-
-COPY decrypt_jwe.ts .
-COPY tsconfig.json .
-
-RUN bun run compile --minify
-
 FROM openresty/openresty:alpine-fat as runner
 
 RUN apk add --no-cache \
     luarocks
 RUN luarocks install lua-resty-jwt
 
-COPY --from=builder /app/dist/decrypt /usr/local/bin/decrypt
-RUN chmod +x /usr/local/bin/decrypt
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 COPY auth.lua /etc/nginx/lua/auth.lua
 COPY entrypoint.sh /app/entrypoint.sh
