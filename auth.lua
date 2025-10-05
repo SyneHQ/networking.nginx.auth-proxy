@@ -163,22 +163,26 @@ if ALLOW_BYPASS == "true" and bypass_header_value and bypass_header_value == BYP
     return ngx.exit(ngx.HTTP_OK)
 end
 
--- check if X-Api-Key header is present
-local api_key = headers["X-Api-Key"]
-if api_key then
-    ngx.log(ngx.INFO, "🔓 Line 112 - auth.lua:main() - Api key found in headers for request: ", ngx.var.request_uri)
-    return ngx.exit(ngx.HTTP_OK)
-end
-
 local cookies = parse_cookies(ngx.var.http_cookie)
 local token = cookies[JWT_SALT]
 
-if not token then
+-- check if X-Api-Key header is present
+local api_key = headers["X-Api-Key"]
+
+if not token and not api_key then
     ngx.log(ngx.ERR, "❌ Line 119 - auth.lua:main() - No JWT token found in cookies for request: ", ngx.var.request_uri)
     return ngx.exit(ngx.HTTP_UNAUTHORIZED)
 end
 
-local jwt_obj = validate_jwt(token)
+local jwt_obj
+
+if api_key then
+    ngx.log(ngx.INFO, "🔓 Line 120 - auth.lua:main() - Api key found in headers for request: ", ngx.var.request_uri)
+    jwt_obj = { payload = { sub = api_key } }
+else
+    jwt_obj = validate_jwt(token)
+end
+
 if not jwt_obj then
     ngx.log(ngx.ERR, "❌ Line 125 - auth.lua:validate_jwt() - Invalid JWT token for request: ", ngx.var.request_uri)
     return ngx.exit(ngx.HTTP_UNAUTHORIZED)
@@ -187,7 +191,9 @@ end
 local user_id = jwt_obj.payload.sub
 
 -- we need to set user_id in the request headers
+ngx.req.set_header("X-Api-Key", api_key)
 ngx.req.set_header("X-User-Id", user_id)
+
 ngx.log(ngx.INFO, "✅ Line 132 - auth.lua:main() - Authentication successful for user: ", user_id, " request: ", ngx.var.request_uri)
 
 if ENABLE_DB_CHECK == "true" then
