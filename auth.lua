@@ -168,6 +168,7 @@ local api_key = headers["X-Api-Key"]
 if api_key then
     ngx.log(ngx.INFO, "🔓 Line 112 - auth.lua:main() - Api key found in headers for request: ", ngx.var.request_uri)
     return ngx.exit(ngx.HTTP_OK)
+end
 
 local cookies = parse_cookies(ngx.var.http_cookie)
 local token = cookies[JWT_SALT]
