@@ -149,16 +149,17 @@ local function parse_cookies(cookie_string)
 end
 
 -- Slack Events API / slash commands / interactivity (Bolt verifies the signature)
+-- access_by_lua: plain return continues to proxy_pass; ngx.exit(HTTP_OK) ends the request.
 local uri = ngx.var.uri or ""
 if uri == "/slack/events" or uri:sub(1, 14) == "/slack/events/" then
     ngx.log(ngx.INFO, "Skipping auth for Slack events: ", ngx.var.request_uri)
-    return ngx.exit(ngx.HTTP_OK)
+    return
 end
 
 -- Allow OPTIONS requests to pass through without authentication for CORS preflight
 if ngx.var.request_method == "OPTIONS" then
     ngx.log(ngx.INFO, "🚀 Line 105 - auth.lua:main() - Allowing OPTIONS preflight request: ", ngx.var.request_uri)
-    return ngx.exit(ngx.HTTP_OK)
+    return
 end
 
 -- get request headers
@@ -167,7 +168,7 @@ local bypass_header_value = headers[BYPASS_HEADER]
 
 if ALLOW_BYPASS == "true" and bypass_header_value and bypass_header_value == BYPASS_HEADER_VALUE then
     ngx.log(ngx.INFO, "🔓 Line 112 - auth.lua:main() - Bypassing auth for request: ", ngx.var.request_uri)
-    return ngx.exit(ngx.HTTP_OK)
+    return
 end
 
 local cookies = parse_cookies(ngx.var.http_cookie)
