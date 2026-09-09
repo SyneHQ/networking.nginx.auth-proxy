@@ -1,213 +1,192 @@
-local jwt = require "resty.jwt"
 local cjson = require "cjson"
--- local redis = require "resty.redis"
--- local pgmoon = require "pgmoon"
 
--- Get environment variables with defaults
 local function get_env(name, default)
     return os.getenv(name) or default
 end
 
--- Environment configuration
-local JWT_SECRET = get_env("JWT_SECRET", "your_secret")
+local JWT_SECRET = get_env("JWT_SECRET", "")
 local JWT_SALT = get_env("JWT_SALT", "authjs.session-token")
-local ALLOW_BYPASS = get_env("ALLOW_BYPASS", "false")
-local BYPASS_HEADER = get_env("BYPASS_HEADER", "X-Bypass-Auth")
-local BYPASS_HEADER_VALUE = get_env("BYPASS_HEADER_VALUE", "true")
--- local REDIS_HOST = get_env("REDIS_HOST", "redis")
--- local REDIS_PORT = tonumber(get_env("REDIS_PORT", "6379"))
--- local REDIS_TIMEOUT = tonumber(get_env("REDIS_TIMEOUT", "1000"))
--- local REDIS_CACHE_TTL = tonumber(get_env("REDIS_CACHE_TTL", "600"))
--- local REDIS_PASSWORD = get_env("REDIS_PASSWORD", "")
--- local REDIS_KEY_PREFIX = get_env("REDIS_KEY_PREFIX", "auth:")
-
--- local POSTGRES_HOST = get_env("POSTGRES_HOST", "postgres")
--- local POSTGRES_PORT = get_env("POSTGRES_PORT", "5432")
--- local POSTGRES_DB = get_env("POSTGRES_DB", "your_db")
--- local POSTGRES_USER = get_env("POSTGRES_USER", "your_user")
--- local POSTGRES_PASSWORD = get_env("POSTGRES_PASSWORD", "your_password")
-
--- local USER_TABLE = get_env("USER_TABLE", "users")
--- local USER_ID_FIELD = get_env("USER_ID_FIELD", "id")
-
+local TOKEN_ISSUER = get_env("TOKEN_ISSUER", "")
+local TOKEN_AUDIENCE = get_env("TOKEN_AUDIENCE", "")
 local ENABLE_DB_CHECK = get_env("ENABLE_DB_CHECK", "false")
--- Validate JWT (Auth.js JWE token)
-local function validate_jwt(token)
-    ngx.log(ngx.ERR, "🔐 [Line 36] validate_jwt: Starting JWT validation for token")
-    
-    -- Prepare request body for the decrypt service
-    local request_body = cjson.encode({
-        token = token,
-        secret = JWT_SECRET,
-        salt = JWT_SALT
-    })
-    -- Use nginx internal location to verify JWE token on port 3000
-    local res = ngx.location.capture("/verify-jwe", {
-        method = ngx.HTTP_POST,
-        body = request_body,
-        headers = {
-            ["Content-Type"] = "application/json"
-        }
-    })
-    
-    if not res then
-        ngx.log(ngx.ERR, "❌ [Line 54] validate_jwt: Failed to capture internal location /verify-jwe")
-        return false
-    end
-    
-    if res.status ~= 200 then
-        ngx.log(ngx.ERR, "❌ [Line 59] validate_jwt: /verify-jwe returned status " .. res.status)
-        return false
-    end
-    
-    if not res.body or res.body == "" then
-        ngx.log(ngx.ERR, "❌ [Line 64] validate_jwt: Empty response body from /verify-jwe")
-        return false
-    end
-    
-    local ok, response = pcall(cjson.decode, res.body)
-    if not ok or not response then
-        ngx.log(ngx.ERR, "❌ [Line 70] validate_jwt: Failed to decode JSON response from /verify-jwe")
-        return false
-    end
-    
-    if not response.success or not response.payload then
-        ngx.log(ngx.ERR, "❌ [Line 75] validate_jwt: Decrypt service returned error: " .. (response.error or "unknown"))
-        return false
-    end
-    
-    local decoded = response.payload
-    
-    -- Check if token is expired
-    if decoded.exp and decoded.exp < ngx.time() then
-        ngx.log(ngx.ERR, "⏰ [Line 83] validate_jwt: Token expired, exp=" .. decoded.exp .. " current=" .. ngx.time())
-        return false
-    end
-    
-    ngx.log(ngx.INFO, "✅ [Line 87] validate_jwt: JWT validation successful")
-    return { payload = decoded }
-end
+local ALLOW_LOCAL_BYPASS = get_env("ALLOW_LOCAL_BYPASS", "false")
+local LOCAL_BYPASS_HEADER = get_env("LOCAL_BYPASS_HEADER", "X-Local-Auth-Bypass")
+local LOCAL_BYPASS_VALUE = get_env("LOCAL_BYPASS_VALUE", "")
 
--- Check user in Redis and Postgres
-local function check_user(user_id)
-    local red = redis:new()
-    red:set_timeout(REDIS_TIMEOUT)
-
-    local ok, err = red:connect(REDIS_HOST, REDIS_PORT)
-    if not ok then
-        return false
-    end
-    
-    local cache_key = REDIS_KEY_PREFIX .. user_id
-    
-    local res, err = red:get(cache_key)
-    if res == ngx.null then
-        local pg = pgmoon.new({
-            host = POSTGRES_HOST,
-            port = POSTGRES_PORT,
-            database = POSTGRES_DB,
-            user = POSTGRES_USER,
-            password = POSTGRES_PASSWORD
-        })
-        
-        local connected, err = pg:connect()
-        if not connected then
-            return false
-        end
-        
-        local query = "SELECT exists (SELECT 1 FROM " .. USER_TABLE .. " WHERE " .. USER_ID_FIELD .. " = " .. pg:escape_literal(user_id) .. ")"
-        
-        local result, err = pg:query(query)
-        if not result then
-            return false
-        end
-        
-        if result[1].exists ~= true then
-            return false
-        end
-        
-        red:setex(cache_key, REDIS_CACHE_TTL, "true")
-    end
-    
-    return true
-end
-
--- Parse cookies manually from ngx.var.http_cookie
 local function parse_cookies(cookie_string)
-    if not cookie_string then
-        return {}
-    end
-    
     local cookies = {}
+    if not cookie_string then
+        return cookies
+    end
+
     for cookie in string.gmatch(cookie_string, "([^;]+)") do
         local key, value = string.match(cookie:gsub("^%s+", ""), "([^=]+)=(.+)")
         if key and value then
             cookies[key] = value
         end
     end
+
     return cookies
 end
 
--- Slack Events API / slash commands / interactivity (Bolt verifies the signature)
--- access_by_lua: plain return continues to proxy_pass; ngx.exit(HTTP_OK) ends the request.
-local uri = ngx.var.uri or ""
-if uri == "/slack/events" or uri:sub(1, 14) == "/slack/events/" then
-    ngx.log(ngx.INFO, "Skipping auth for Slack events: ", ngx.var.request_uri)
-    return
-end
+local function clear_untrusted_headers()
+    local headers = {
+        "X-Api-Key",
+        "X-User-Id",
+        "X-User-Email",
+        "X-Remote-User",
+        "X-Remote-Email",
+        "X-Auth-User",
+        "X-Team-Id",
+        "X-Organization-Id",
+        "X-Forwarded-User",
+        "X-Forwarded-Email",
+        "X-Forwarded-Id",
+        "X-Forwarded-Access-Token",
+        "X-Auth-Request-User",
+        "X-Auth-Request-Email",
+        "X-Auth-Request-Access-Token",
+        "X-Forwarded-For",
+        "X-Forwarded-Host",
+        "X-Forwarded-Proto",
+        "X-Real-IP",
+        "X-Bypass-Auth",
+        LOCAL_BYPASS_HEADER,
+    }
 
--- Allow OPTIONS requests to pass through without authentication for CORS preflight
-if ngx.var.request_method == "OPTIONS" then
-    ngx.log(ngx.INFO, "🚀 Line 105 - auth.lua:main() - Allowing OPTIONS preflight request: ", ngx.var.request_uri)
-    return
-end
-
--- get request headers
-local headers = ngx.req.get_headers()
-local bypass_header_value = headers[BYPASS_HEADER]
-
-if ALLOW_BYPASS == "true" and bypass_header_value and bypass_header_value == BYPASS_HEADER_VALUE then
-    ngx.log(ngx.INFO, "🔓 Line 112 - auth.lua:main() - Bypassing auth for request: ", ngx.var.request_uri)
-    return
-end
-
-local cookies = parse_cookies(ngx.var.http_cookie)
-local token = cookies[JWT_SALT]
-
--- check if X-Api-Key header is present
-local api_key = headers["X-Api-Key"]
-
-if not token and not api_key then
-    ngx.log(ngx.ERR, "❌ Line 119 - auth.lua:main() - No JWT token found in cookies for request: ", ngx.var.request_uri)
-    return ngx.exit(ngx.HTTP_UNAUTHORIZED)
-end
-
-local jwt_obj
-
-if api_key then
-    ngx.log(ngx.INFO, "🔓 Line 120 - auth.lua:main() - Api key found in headers for request: ", ngx.var.request_uri)
-    jwt_obj = { payload = { sub = api_key } }
-else
-    jwt_obj = validate_jwt(token)
-end
-
-if not jwt_obj then
-    ngx.log(ngx.ERR, "❌ Line 125 - auth.lua:validate_jwt() - Invalid JWT token for request: ", ngx.var.request_uri)
-    return ngx.exit(ngx.HTTP_UNAUTHORIZED)
-end
-
-local user_id = jwt_obj.payload.sub
-
--- we need to set user_id in the request headers
-ngx.req.set_header("X-Api-Key", api_key)
-ngx.req.set_header("X-User-Id", user_id)
-
-ngx.log(ngx.INFO, "✅ Line 132 - auth.lua:main() - Authentication successful for user: ", user_id, " request: ", ngx.var.request_uri)
-
-if ENABLE_DB_CHECK == "true" then
-    if not check_user(user_id) then
-        ngx.log(ngx.ERR, "❌ Line 136 - auth.lua:check_user() - User not found in database: ", user_id, " request: ", ngx.var.request_uri)
-        return ngx.exit(ngx.HTTP_FORBIDDEN)
+    for _, header in ipairs(headers) do
+        ngx.req.clear_header(header)
     end
-    ngx.log(ngx.INFO, "✅ Line 139 - auth.lua:check_user() - Database check passed for user: ", user_id)
+end
+
+local function audience_matches(audience, expected)
+    if type(audience) == "string" then
+        return audience == expected
+    end
+
+    if type(audience) == "table" then
+        for _, value in ipairs(audience) do
+            if value == expected then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function validate_claims(payload)
+    if type(payload) ~= "table" or type(payload.sub) ~= "string" or payload.sub == "" then
+        return false, "token is missing a subject"
+    end
+
+    -- Expiration is mandatory. Auth.js JWE tokens must carry a numeric exp claim.
+    if type(payload.exp) ~= "number" or payload.exp <= ngx.time() then
+        return false, "token is expired or missing expiration"
+    end
+
+    if TOKEN_ISSUER ~= "" and payload.iss ~= TOKEN_ISSUER then
+        return false, "token issuer does not match"
+    end
+
+    if TOKEN_AUDIENCE ~= "" and not audience_matches(payload.aud, TOKEN_AUDIENCE) then
+        return false, "token audience does not match"
+    end
+
+    return true
+end
+
+local function validate_jwe(token)
+    if JWT_SECRET == "" then
+        ngx.log(ngx.ERR, "Authentication is not configured: JWT_SECRET is empty")
+        return nil, "unavailable"
+    end
+
+    local body = cjson.encode({
+        token = token,
+        secret = JWT_SECRET,
+        salt = JWT_SALT,
+    })
+
+    local captured, res = pcall(ngx.location.capture, "/verify-jwe", {
+        method = ngx.HTTP_POST,
+        body = body,
+        headers = { ["Content-Type"] = "application/json" },
+    })
+
+    if not captured or not res then
+        ngx.log(ngx.ERR, "JWE verification subrequest failed")
+        return nil, "unavailable"
+    end
+
+    if res.status >= 500 or res.status == ngx.HTTP_REQUEST_TIMEOUT then
+        ngx.log(ngx.ERR, "JWE verification service unavailable, status=", res.status)
+        return nil, "unavailable"
+    end
+
+    if res.status ~= ngx.HTTP_OK or not res.body or res.body == "" then
+        return nil, "invalid"
+    end
+
+    local decoded, response = pcall(cjson.decode, res.body)
+    if not decoded or type(response) ~= "table" or response.success ~= true then
+        return nil, "invalid"
+    end
+
+    local valid, reason = validate_claims(response.payload)
+    if not valid then
+        ngx.log(ngx.WARN, "JWE claim validation failed: ", reason)
+        return nil, "invalid"
+    end
+
+    return response.payload
+end
+
+local function authenticate()
+    local request_headers = ngx.req.get_headers()
+    local local_bypass_value = request_headers[LOCAL_BYPASS_HEADER]
+    clear_untrusted_headers()
+
+    -- Slack verifies its own signature downstream. This is intentionally limited to
+    -- the exact callback endpoint, not a path prefix, and receives no caller identity.
+    if ngx.var.uri == "/slack/events" then
+        return
+    end
+
+    -- Local bypass is opt-in, requires a non-empty secret value, and only accepts
+    -- direct loopback traffic. It cannot be enabled for remotely sourced requests.
+    if ALLOW_LOCAL_BYPASS == "true"
+        and LOCAL_BYPASS_VALUE ~= ""
+        and local_bypass_value == LOCAL_BYPASS_VALUE
+        and (ngx.var.remote_addr == "127.0.0.1" or ngx.var.remote_addr == "::1") then
+        ngx.log(ngx.WARN, "Local authentication bypass accepted")
+        return
+    end
+
+    local token = parse_cookies(ngx.var.http_cookie)[JWT_SALT]
+    if not token then
+        ngx.log(ngx.WARN, "Authentication rejected: session token is missing")
+        return ngx.exit(ngx.HTTP_UNAUTHORIZED)
+    end
+
+    local payload, state = validate_jwe(token)
+    if not payload then
+        if state == "unavailable" then
+            return ngx.exit(ngx.HTTP_SERVICE_UNAVAILABLE)
+        end
+        return ngx.exit(ngx.HTTP_UNAUTHORIZED)
+    end
+
+    ngx.req.set_header("X-User-Id", payload.sub)
+
+    if ENABLE_DB_CHECK == "true" then
+        ngx.log(ngx.ERR, "ENABLE_DB_CHECK is not supported without a configured verifier")
+        return ngx.exit(ngx.HTTP_SERVICE_UNAVAILABLE)
+    end
+end
+
+local ok, err = pcall(authenticate)
+if not ok then
+    ngx.log(ngx.ERR, "Authentication boundary failed closed: ", err)
+    return ngx.exit(ngx.HTTP_SERVICE_UNAVAILABLE)
 end

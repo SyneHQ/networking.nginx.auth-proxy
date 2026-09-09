@@ -1,66 +1,59 @@
 # Auth Proxy
 
-An OpenResty/Nginx authentication proxy that validates Auth.js JWE tokens and provides user verification through Redis caching and PostgreSQL database checks.
+An OpenResty/Nginx authentication boundary for services that share an Auth.js session. It validates Auth.js JWE session cookies before proxying protected requests.
 
-## Why?
+## Security model
 
-This auth proxy is useful when you have an access application using Next.js or other frontend frameworks that use Auth.js library to manage user sessions, and you want to share that authentication token with other applications in your stack - whether that's a Python application, Go REST API, or any other service.
+The proxy fails closed. A protected request is forwarded only after all of the following checks succeed:
 
-By using this nginx proxy, you can put those applications behind an authentication layer that validates the same Auth.js session tokens your frontend uses, creating a unified authentication system across your entire application ecosystem.
+1. The request includes a cookie named by `JWT_SALT` (default: `authjs.session-token`).
+2. The proxy sends that JWE, together with the configured secret and salt, to its internal `/verify-jwe` subrequest endpoint.
+3. The decrypt service returns a successful payload with a non-empty string `sub` claim.
+4. The payload has a numeric `exp` claim that is later than the current time. Expiration is mandatory.
+5. When configured, `TOKEN_ISSUER` must exactly match the payload `iss` claim and `TOKEN_AUDIENCE` must match either the string payload `aud` claim or one member of an audience array.
 
-### Common Use Cases
+Invalid, missing, expired, or claim-mismatched tokens receive `401`. Missing proxy configuration or an unavailable verification service receives `503`. Unexpected authentication-boundary failures also receive `503`; requests are never forwarded after an authentication error.
 
-**Microservices Authentication**: Protect multiple backend services (Node.js APIs, Python Flask/FastAPI apps, Go services, etc.) with a single authentication layer without duplicating auth logic in each service.
+### Internal JWE verification
 
-**Legacy System Integration**: Add modern Auth.js authentication to legacy applications that don't have built-in session management by placing them behind this proxy.
+`/verify-jwe` is an exact Nginx `internal` location in every protected virtual host. It is callable only by the Lua subrequest used by the proxy and is not a public decrypt endpoint. Direct external requests do not expose the decrypt service.
 
-**API Gateway Pattern**: Use as an authentication gateway for your API infrastructure, validating tokens before requests reach your backend services.
+### Trusted identity headers
 
-**Static Site Protection**: Secure static websites, documentation sites, or admin panels by requiring users to authenticate through your main application first.
+Before any exception or authentication check, the proxy removes caller-supplied identity, credential, routing, and bypass headers. This includes:
 
-**Multi-Language Environments**: Bridge authentication between different technology stacks - your React frontend can authenticate users while your Python data processing APIs, Go microservices, and PHP admin panels all share the same session validation.
+- `X-Api-Key`, `X-User-Id`, `X-User-Email`, `X-Remote-User`, `X-Remote-Email`, `X-Auth-User`, `X-Team-Id`, and `X-Organization-Id`
+- `X-Forwarded-User`, `X-Forwarded-Email`, `X-Forwarded-Id`, `X-Forwarded-Access-Token`, `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto`
+- `X-Auth-Request-User`, `X-Auth-Request-Email`, `X-Auth-Request-Access-Token`, `X-Real-IP`, `X-Bypass-Auth`, and the configured local bypass header
 
-**Development Environment**: Quickly add authentication to development tools, staging environments, or internal dashboards without implementing custom auth in each tool.
+After successful JWE validation, the proxy sets only `X-User-Id` from the trusted `sub` claim. The normal proxy configuration then sets its own forwarding headers.
 
-**Third-Party Integration**: Authenticate users for third-party services or self-hosted applications (like Grafana, Jenkins, or custom tools) using your existing Auth.js sessions.
+### Deliberate exceptions
 
-## Features
-
-- **JWT/JWE Token Validation**: Decrypts and validates Auth.js issued JWE tokens
-- **Redis Caching**: Caches user validation results to reduce database load
-- **PostgreSQL Integration**: Verifies user existence in configurable database tables
-- **Environment Configuration**: Flexible configuration through environment variables
-- **High Performance**: Built on OpenResty for optimal performance
+- `/slack/events` is the sole unauthenticated application path. The match is exact; `/slack/events/` and all other paths require authentication. Slack signature verification remains the downstream service's responsibility, and this exception does not propagate caller identity.
+- Local bypass is disabled by default. It is accepted only when `ALLOW_LOCAL_BYPASS=true`, `LOCAL_BYPASS_VALUE` is non-empty and exactly matches the request's `LOCAL_BYPASS_HEADER`, and the direct peer address is `127.0.0.1` or `::1`. It must not be enabled for remotely sourced requests, and it does not set an identity header.
 
 ## Configuration
 
-The proxy is configured through environment variables:
+Copy `.env.example` to a local `.env` file and provide values through the deployment secret manager or local environment. Do not commit a populated `.env` file.
 
-### JWT Configuration
-- `JWT_SECRET`: Secret key for JWT decryption (default: "your_secret")
-- `JWT_SALT`: Salt for Auth.js session token (default: "authjs.session-token")
+| Variable | Purpose |
+| --- | --- |
+| `JWT_SECRET` | Required secret used by the JWE decrypt service. The proxy is unavailable when empty. |
+| `JWT_SALT` | Auth.js session cookie name and JWE salt. Defaults to `authjs.session-token`. |
+| `TOKEN_ISSUER` | Optional expected issuer. Leave empty unless issued tokens include a matching `iss` claim. |
+| `TOKEN_AUDIENCE` | Optional expected audience. Leave empty unless issued tokens include a matching `aud` claim. |
+| `ALLOW_LOCAL_BYPASS` | Local-development-only bypass switch. Defaults to `false`. |
+| `LOCAL_BYPASS_HEADER` | Header checked for the local bypass. Defaults to `X-Local-Auth-Bypass`. |
+| `LOCAL_BYPASS_VALUE` | Required non-empty local bypass value. Keep it outside version control. |
+| `ENABLE_DB_CHECK` | Must remain `false`; no database verifier is configured, and enabling it fails closed with `503`. |
 
-### Redis Configuration
-- `REDIS_HOST`: Redis server host (default: "redis")
-- `REDIS_PORT`: Redis server port (default: 6379)
-- `REDIS_TIMEOUT`: Connection timeout in ms (default: 1000)
-- `REDIS_CACHE_TTL`: Cache TTL in seconds (default: 600)
-- `REDIS_PASSWORD`: Redis password (default: "")
-- `REDIS_KEY_PREFIX`: Key prefix for cached entries (default: "auth:")
+## Docker boundary validation
 
-### PostgreSQL Configuration
-- `POSTGRES_HOST`: PostgreSQL server host (default: "postgres")
-- `POSTGRES_PORT`: PostgreSQL server port (default: "5432")
-- `POSTGRES_DB`: Database name (default: "your_db")
-- `POSTGRES_USER`: Database user (default: "your_user")
-- `POSTGRES_PASSWORD`: Database password (default: "your_password")
-- `USER_TABLE`: User table name (default: "users")
-- `USER_ID_FIELD`: User ID field name (default: "id")
+Run the repository-provided boundary check from this directory. It builds an isolated local image and verifies that `/verify-jwe` is not public, spoofed headers are stripped, the Slack exception is exact, expired tokens are rejected, and a missing verifier fails closed:
 
-### Security Configuration
-- `ALLOW_BYPASS`: Enable bypass functionality for development/testing (default: "false")
-- `BYPASS_HEADER`: Header name for bypass authentication (default: "X-Auth-Bypass")
-- `BYPASS_HEADER_VALUE`: Required header value for bypass (default: "true")
+```sh
+docker build -t auth-proxy-boundary-test:local . && ./test-auth-boundary.sh
+```
 
-### Feature Flags
-- `ENABLE_DB_CHECK`: Enable database user verification (default: "false")
+This command is a local configuration and boundary check. It is not evidence of deployed-environment certification.
