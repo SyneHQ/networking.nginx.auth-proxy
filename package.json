@@ -10,10 +10,10 @@
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@panva/hkdf": "^1.2.1",
-    "jose": "^6.0.12"
+    "jose": "^6.2.12"
   }
 }
