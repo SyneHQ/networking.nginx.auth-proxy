@@ -1,0 +1,6 @@
+# actions/labeler v4 configuration. Only file paths are inspected.
+documentation:
+  - '**/*.md'
+dependencies:
+  - 'package.json'
+  - 'bun.lock'
