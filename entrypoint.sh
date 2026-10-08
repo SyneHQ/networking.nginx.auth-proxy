@@ -13,6 +13,12 @@ case "$DNS_RESOLVER" in
     *:*) DNS_RESOLVER="[$DNS_RESOLVER]" ;;
 esac
 
+APP_SCHEME="${APP_SCHEME:-https}"
+case "$APP_SCHEME" in
+    http|https) ;;
+    *) echo 'APP_SCHEME must be http or https.' >&2; exit 1 ;;
+esac
+
 APP_HOST="${APP_HOST:-data.synehq.com}"
 case "$APP_HOST" in
     ''|*[!a-zA-Z0-9.-]*) echo 'APP_HOST must contain one DNS hostname.' >&2; exit 1 ;;
@@ -31,6 +37,7 @@ for endpoint in "$KOLE_UPSTREAM" "$PAYWALL_UPSTREAM" "$DB_API_UPSTREAM" "$APP_UP
 done
 sed -e "s/__DNS_RESOLVER__/$DNS_RESOLVER/g" \
     -e "s/__APP_HOST__/$APP_HOST/g" \
+    -e "s/__APP_SCHEME__/$APP_SCHEME/g" \
     -e "s/__KOLE_UPSTREAM__/$KOLE_UPSTREAM/g" \
     -e "s/__PAYWALL_UPSTREAM__/$PAYWALL_UPSTREAM/g" \
     -e "s/__DB_API_UPSTREAM__/$DB_API_UPSTREAM/g" \

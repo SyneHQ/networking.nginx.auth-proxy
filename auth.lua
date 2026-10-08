@@ -128,7 +128,7 @@ local function authenticate()
 
     -- Slack verifies its own signature downstream. This is intentionally limited to
     -- the exact callback endpoint, not a path prefix, and receives no caller identity.
-    if ngx.var.uri == "/slack/events" then
+    if ngx.var.uri == "/slack/events" and ngx.var.server_name == "kole.synehq.com" then
         return
     end
 

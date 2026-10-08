@@ -30,7 +30,7 @@ After successful JWE validation, the proxy sets only `X-User-Id` from the truste
 
 ### Deliberate exceptions
 
-- `/slack/events` is the sole unauthenticated application path. The match is exact; `/slack/events/` and all other paths require authentication. Slack signature verification remains the downstream service's responsibility, and this exception does not propagate caller identity.
+- `/slack/events` on the Kole virtual host is the sole unauthenticated data-service path. The match is exact; `/slack/events/` and all other paths require authentication. Slack signature verification remains the downstream service's responsibility, and this exception does not propagate caller identity.
 - Local bypass is disabled by default. It is accepted only when `ALLOW_LOCAL_BYPASS=true`, `LOCAL_BYPASS_VALUE` is non-empty and exactly matches the request's `LOCAL_BYPASS_HEADER`, and the direct peer address is `127.0.0.1` or `::1`. It must not be enabled for remotely sourced requests, and it does not set an identity header.
 
 ## Configuration
@@ -91,3 +91,6 @@ This uses disposable keys, private containers, and both Auth.js encryption modes
 `APP_HOST` defaults to `data.synehq.com`. This host delegates session authorization to the app so login and assets remain reachable.
 The proxy removes caller-supplied identity headers before forwarding app requests. Database, Kole, and Paywall hosts still require valid sessions.
 The default virtual host provides `/healthz` for readiness probes.
+
+`APP_SCHEME` defaults to `https`. It sets the app upstream protocol header independently of caller headers or internal ingress transport.
+Use `APP_SCHEME=http` only when the public app URL uses HTTP.
