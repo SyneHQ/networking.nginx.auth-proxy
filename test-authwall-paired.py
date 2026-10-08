@@ -81,7 +81,7 @@ def main():
                 "-e", f"AUTH_COOKIE_NAME={salt}", "--entrypoint", "/authwall", "golang:1.26.8")
             run("docker", "run", "-d", *limits, "--name", names[1], "--network-alias", "kole.fixture.test",
                 "-v", f"{temp}/kole.conf:/etc/nginx/conf.d/default.conf:ro", "nginx:alpine")
-            (temp / "app.conf").write_text('server { listen 3001; location / { return 200 "path=$uri user=$http_x_user_id"; } }')
+            (temp / "app.conf").write_text('server { listen 3001; location / { return 200 "path=$uri user=$http_x_user_id proto=$http_x_forwarded_proto"; } }')
             run("docker", "run", "-d", *limits, "--name", names[3], "--network-alias", "app.fixture.test",
                 "-v", f"{temp}/app.conf:/etc/nginx/conf.d/default.conf:ro", "nginx:alpine")
             run("docker", "run", "-d", *limits, "--name", names[2], "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m",
@@ -96,7 +96,7 @@ def main():
 
             def request(cookie, path="/", host="kole.synehq.com"):
                 result = run("docker", "exec", names[2], "wget", "-S", "-O", "-", "--header=Host: " + host,
-                             "--header=X-User-Id: attacker", "--header=Cookie: " + cookie,
+                             "--header=X-User-Id: attacker", "--header=X-Forwarded-Proto: attacker", "--header=Cookie: " + cookie,
                              "http://127.0.0.1:8080" + path, check=False)
                 statuses = [line.split()[1] for line in result.stderr.splitlines() if "HTTP/" in line]
                 return (statuses[-1] if statuses else "missing"), result.stdout
@@ -115,9 +115,11 @@ def main():
                 assert request(salt + ".1=" + good)[0] == "401", enc
                 assert request(salt + "=" + good, "/verify-jwe")[0] == "404", enc
             for path in ["/", "/api/auth/providers", "/api/auth/signin", "/_next/static/test.js"]:
-                assert request("", path, "data.synehq.com") == ("200", "path=" + path + " user="), path
+                assert request("", path, "data.synehq.com") == ("200", "path=" + path + " user= proto=https"), path
             for host in ["kole.synehq.com", "cosmos.synehq.com", "paywall.synehq.com"]:
                 assert request("", "/api/auth/providers", host)[0] == "401", host
+            for host in ["cosmos.synehq.com", "paywall.synehq.com"]:
+                assert request("", "/slack/events", host)[0] == "401", host
             assert request("", "/healthz", "127.0.0.1") == ("200", "ok\n")
             assert run("docker", "exec", names[2], "id", "-u").stdout.strip() == "65532"
             print("PASS: real Authwall/proxy, both Auth.js encryption modes, configured keys, expiry, chunks, header identity, private verifier, app login/assets, protected data hosts, readiness, nonroot read-only runtime.")
