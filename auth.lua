@@ -4,7 +4,6 @@ local function get_env(name, default)
     return os.getenv(name) or default
 end
 
-local JWT_SECRET = get_env("JWT_SECRET", "")
 local JWT_SALT = get_env("JWT_SALT", "authjs.session-token")
 local TOKEN_ISSUER = get_env("TOKEN_ISSUER", "")
 local TOKEN_AUDIENCE = get_env("TOKEN_AUDIENCE", "")
@@ -13,20 +12,38 @@ local ALLOW_LOCAL_BYPASS = get_env("ALLOW_LOCAL_BYPASS", "false")
 local LOCAL_BYPASS_HEADER = get_env("LOCAL_BYPASS_HEADER", "X-Local-Auth-Bypass")
 local LOCAL_BYPASS_VALUE = get_env("LOCAL_BYPASS_VALUE", "")
 
-local function parse_cookies(cookie_string)
-    local cookies = {}
-    if not cookie_string then
-        return cookies
-    end
-
+-- Auth.js splits large cookies into name.0, name.1, and subsequent chunks.
+-- Reject duplicate names, gaps, mixed formats, and excessive input.
+local function session_cookie(cookie_string, name)
+    if not cookie_string or #cookie_string > 65536 then return nil end
+    local plain, chunks, count, seen = nil, {}, 0, {}
     for cookie in string.gmatch(cookie_string, "([^;]+)") do
-        local key, value = string.match(cookie:gsub("^%s+", ""), "([^=]+)=(.+)")
-        if key and value then
-            cookies[key] = value
+        local key, value = string.match(cookie:gsub("^%s+", ""), "([^=]+)=(.*)")
+        if key == name or (key and key:sub(1, #name + 1) == name .. ".") then
+            if seen[key] or value == "" then return nil end
+            seen[key] = true
+            if key == name then
+                plain = value
+            else
+                local suffix = key:sub(#name + 2)
+                local index = tonumber(suffix)
+                if not index or index < 0 or index >= 32 or tostring(index) ~= suffix then return nil end
+                chunks[index] = value
+                count = count + 1
+            end
         end
     end
-
-    return cookies
+    if plain then
+        if count ~= 0 then return nil end
+        return plain
+    end
+    local parts = {}
+    for index = 0, count - 1 do
+        if not chunks[index] then return nil end
+        parts[#parts + 1] = chunks[index]
+    end
+    if count == 0 then return nil end
+    return table.concat(parts)
 end
 
 local function clear_untrusted_headers()
@@ -97,16 +114,7 @@ local function validate_claims(payload)
 end
 
 local function validate_jwe(token)
-    if JWT_SECRET == "" then
-        ngx.log(ngx.ERR, "Authentication is not configured: JWT_SECRET is empty")
-        return nil, "unavailable"
-    end
-
-    local body = cjson.encode({
-        token = token,
-        secret = JWT_SECRET,
-        salt = JWT_SALT,
-    })
+    local body = cjson.encode({ token = token })
 
     local captured, res = pcall(ngx.location.capture, "/verify-jwe", {
         method = ngx.HTTP_POST,
@@ -163,7 +171,7 @@ local function authenticate()
         return
     end
 
-    local token = parse_cookies(ngx.var.http_cookie)[JWT_SALT]
+    local token = session_cookie(ngx.var.http_cookie, JWT_SALT)
     if not token then
         ngx.log(ngx.WARN, "Authentication rejected: session token is missing")
         return ngx.exit(ngx.HTTP_UNAUTHORIZED)

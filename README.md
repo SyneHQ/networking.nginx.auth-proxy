@@ -7,8 +7,8 @@ An OpenResty/Nginx authentication boundary for services that share an Auth.js se
 The proxy fails closed. A protected request is forwarded only after all of the following checks succeed:
 
 1. The request includes a cookie named by `JWT_SALT` (default: `authjs.session-token`).
-2. The proxy sends that JWE, together with the configured secret and salt, to its internal `/verify-jwe` subrequest endpoint.
-3. The decrypt service returns a successful payload with a non-empty string `sub` claim.
+2. The proxy sends only the JWE to Authwall `/verify` through its internal `/verify-jwe` subrequest.
+3. Authwall uses its configured keys and returns a successful payload with a non-empty string `sub` claim.
 4. The payload has a numeric `exp` claim that is later than the current time. Expiration is mandatory.
 5. When configured, `TOKEN_ISSUER` must exactly match the payload `iss` claim and `TOKEN_AUDIENCE` must match either the string payload `aud` claim or one member of an audience array.
 
@@ -39,7 +39,8 @@ Copy `.env.example` to a local `.env` file and provide values through the deploy
 
 | Variable | Purpose |
 | --- | --- |
-| `JWT_SECRET` | Required secret used by the JWE decrypt service. The proxy is unavailable when empty. |
+| `AUTHWALL_UPSTREAM` | Private Authwall hostname and port. Default: `authwall:80`. |
+| `DNS_RESOLVER` | DNS server IP. Defaults to the first nameserver in `/etc/resolv.conf`. |
 | `JWT_SALT` | Auth.js session cookie name and JWE salt. Defaults to `authjs.session-token`. |
 | `TOKEN_ISSUER` | Optional expected issuer. Leave empty unless issued tokens include a matching `iss` claim. |
 | `TOKEN_AUDIENCE` | Optional expected audience. Leave empty unless issued tokens include a matching `aud` claim. |
@@ -53,7 +54,36 @@ Copy `.env.example` to a local `.env` file and provide values through the deploy
 Run the repository-provided boundary check from this directory. It builds an isolated local image and verifies that `/verify-jwe` is not public, spoofed headers are stripped, the Slack exception is exact, expired tokens are rejected, and a missing verifier fails closed:
 
 ```sh
-docker build -t auth-proxy-boundary-test:local . && ./test-auth-boundary.sh
+./test-auth-boundary.sh
 ```
 
 This command is a local configuration and boundary check. It is not evidence of deployed-environment certification.
+
+## Kubernetes routing
+
+Set upstreams to complete service names. Nginx does not apply the resolver search suffix.
+
+```sh
+AUTHWALL_UPSTREAM=authwall.example-namespace.svc.cluster.local:80
+DB_API_UPSTREAM=db-api.example-namespace.svc.cluster.local:8080
+KOLE_UPSTREAM=kole.example-namespace.svc.cluster.local:8080
+PAYWALL_UPSTREAM=paywall.example-namespace.svc.cluster.local:8080
+APP_UPSTREAM=app.example-namespace.svc.cluster.local:3001
+KMS_UPSTREAM=kms.example-namespace.svc.cluster.local:50051
+JWT_SALT=__Secure-authjs.session-token
+```
+
+Authwall `AUTH_SALT` must equal `JWT_SALT`. Store Auth.js keys in Authwall `AUTH_SECRETS`.
+The proxy no longer needs `JWT_SECRET`. Keep Authwall private and leave its debug endpoints disabled.
+Cookie chunks must start at `.0` and remain consecutive. Duplicate cookies and mixed formats return 401.
+
+The container runs as UID 65532 and listens on port 8080. Mount writable `/tmp` when the root filesystem is read-only.
+Nginx stores its generated configuration, PID, and request buffers under `/tmp/auth-proxy`. Size that volume for permitted request bodies.
+
+For paired acceptance, install Python `cryptography` and provide the reviewed Authwall checkout:
+
+```sh
+python3 test-authwall-paired.py ../authwall.go
+```
+
+This uses disposable keys, private containers, and both Auth.js encryption modes. It checks real token verification and the nonroot, read-only runtime.
