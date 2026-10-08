@@ -5,7 +5,7 @@ RUN apk add --no-cache \
 RUN luarocks install lua-resty-jwt
 
 COPY nginx.conf /app/nginx.conf.template
-COPY auth.lua /etc/nginx/lua/auth.lua
+COPY auth.lua headers.lua /etc/nginx/lua/
 COPY entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh
