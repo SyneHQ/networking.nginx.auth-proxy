@@ -1,0 +1,12 @@
+name: Verify authentication boundary
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh ./test-auth-boundary.sh
