@@ -87,3 +87,7 @@ python3 test-authwall-paired.py ../authwall.go
 ```
 
 This uses disposable keys, private containers, and both Auth.js encryption modes. It checks real token verification and the nonroot, read-only runtime.
+
+`APP_HOST` defaults to `data.synehq.com`. This host delegates session authorization to the app so login and assets remain reachable.
+The proxy removes caller-supplied identity headers before forwarding app requests. Database, Kole, and Paywall hosts still require valid sessions.
+The default virtual host provides `/healthz` for readiness probes.

@@ -46,35 +46,6 @@ local function session_cookie(cookie_string, name)
     return table.concat(parts)
 end
 
-local function clear_untrusted_headers()
-    local headers = {
-        "X-Api-Key",
-        "X-User-Id",
-        "X-User-Email",
-        "X-Remote-User",
-        "X-Remote-Email",
-        "X-Auth-User",
-        "X-Team-Id",
-        "X-Organization-Id",
-        "X-Forwarded-User",
-        "X-Forwarded-Email",
-        "X-Forwarded-Id",
-        "X-Forwarded-Access-Token",
-        "X-Auth-Request-User",
-        "X-Auth-Request-Email",
-        "X-Auth-Request-Access-Token",
-        "X-Forwarded-For",
-        "X-Forwarded-Host",
-        "X-Forwarded-Proto",
-        "X-Real-IP",
-        "X-Bypass-Auth",
-        LOCAL_BYPASS_HEADER,
-    }
-
-    for _, header in ipairs(headers) do
-        ngx.req.clear_header(header)
-    end
-end
 
 local function audience_matches(audience, expected)
     if type(audience) == "string" then
@@ -153,7 +124,7 @@ end
 local function authenticate()
     local request_headers = ngx.req.get_headers()
     local local_bypass_value = request_headers[LOCAL_BYPASS_HEADER]
-    clear_untrusted_headers()
+    require("headers").clear(LOCAL_BYPASS_HEADER)
 
     -- Slack verifies its own signature downstream. This is intentionally limited to
     -- the exact callback endpoint, not a path prefix, and receives no caller identity.

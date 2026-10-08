@@ -59,7 +59,7 @@ def main():
     proxy_source = Path(__file__).resolve().parent
     prefix = "authpair-" + secrets.token_hex(4)
     image = prefix + ":test"
-    names = [prefix + "-authwall", prefix + "-kole", prefix + "-proxy"]
+    names = [prefix + "-authwall", prefix + "-kole", prefix + "-proxy", prefix + "-app"]
     salt, secret = "__Secure-authjs.session-token", secrets.token_hex(32)
     with tempfile.TemporaryDirectory(prefix=prefix) as folder:
         os.chmod(folder, 0o755)
@@ -81,9 +81,12 @@ def main():
                 "-e", f"AUTH_COOKIE_NAME={salt}", "--entrypoint", "/authwall", "golang:1.26.8")
             run("docker", "run", "-d", *limits, "--name", names[1], "--network-alias", "kole.fixture.test",
                 "-v", f"{temp}/kole.conf:/etc/nginx/conf.d/default.conf:ro", "nginx:alpine")
+            (temp / "app.conf").write_text('server { listen 3001; location / { return 200 "path=$uri user=$http_x_user_id"; } }')
+            run("docker", "run", "-d", *limits, "--name", names[3], "--network-alias", "app.fixture.test",
+                "-v", f"{temp}/app.conf:/etc/nginx/conf.d/default.conf:ro", "nginx:alpine")
             run("docker", "run", "-d", *limits, "--name", names[2], "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m",
                 "-e", f"JWT_SALT={salt}", "-e", "AUTHWALL_UPSTREAM=authwall.fixture.test:8080",
-                "-e", "KOLE_UPSTREAM=kole.fixture.test:8080", image)
+                "-e", "KOLE_UPSTREAM=kole.fixture.test:8080", "-e", "APP_UPSTREAM=app.fixture.test:3001", image)
             for _ in range(30):
                 if run("docker", "exec", names[2], "wget", "-qO-", "http://authwall.fixture.test:8080/health", check=False).returncode == 0:
                     break
@@ -91,8 +94,8 @@ def main():
             else:
                 raise AssertionError("Authwall did not become healthy.")
 
-            def request(cookie, path="/"):
-                result = run("docker", "exec", names[2], "wget", "-S", "-O", "-", "--header=Host: kole.synehq.com",
+            def request(cookie, path="/", host="kole.synehq.com"):
+                result = run("docker", "exec", names[2], "wget", "-S", "-O", "-", "--header=Host: " + host,
                              "--header=X-User-Id: attacker", "--header=Cookie: " + cookie,
                              "http://127.0.0.1:8080" + path, check=False)
                 statuses = [line.split()[1] for line in result.stderr.splitlines() if "HTTP/" in line]
@@ -111,8 +114,13 @@ def main():
                 assert request(salt + "=" + expired)[0] == "401", enc
                 assert request(salt + ".1=" + good)[0] == "401", enc
                 assert request(salt + "=" + good, "/verify-jwe")[0] == "404", enc
+            for path in ["/", "/api/auth/providers", "/api/auth/signin", "/_next/static/test.js"]:
+                assert request("", path, "data.synehq.com") == ("200", "path=" + path + " user="), path
+            for host in ["kole.synehq.com", "cosmos.synehq.com", "paywall.synehq.com"]:
+                assert request("", "/api/auth/providers", host)[0] == "401", host
+            assert request("", "/healthz", "127.0.0.1") == ("200", "ok\n")
             assert run("docker", "exec", names[2], "id", "-u").stdout.strip() == "65532"
-            print("PASS: real Authwall/proxy, both Auth.js encryption modes, configured keys, expiry, chunks, header identity, private verifier, nonroot read-only runtime.")
+            print("PASS: real Authwall/proxy, both Auth.js encryption modes, configured keys, expiry, chunks, header identity, private verifier, app login/assets, protected data hosts, readiness, nonroot read-only runtime.")
         finally:
             run("docker", "rm", "-f", *names, check=False)
             run("docker", "network", "rm", prefix, check=False)
