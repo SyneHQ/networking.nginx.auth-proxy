@@ -42,11 +42,22 @@ server {
 }
 EOF
 
+cat >"$TMPDIR/db_api.conf" <<'EOF'
+server {
+    listen 8080;
+    location / {
+        default_type text/plain;
+        return 200 "user=$http_x_user_id api=$http_x_api_key team=$http_x_team_id";
+    }
+}
+EOF
+
 docker build -t "$IMAGE" .
 docker network create "$NETWORK" >/dev/null
 docker run -d --name authwall-test --network "$NETWORK" --network-alias authwall -v "$TMPDIR/authwall.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine >/dev/null
 docker run -d --name kole-test --network "$NETWORK" --network-alias kole -v "$TMPDIR/kole.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine >/dev/null
-for service in paywall db_api app kms; do
+docker run -d --name db_api-test --network "$NETWORK" --network-alias db_api -v "$TMPDIR/db_api.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine >/dev/null
+for service in paywall app kms; do
     docker run -d --name "${service}-test" --network "$NETWORK" --network-alias "$service" nginx:alpine >/dev/null
 done
 docker run --rm --network "$NETWORK" --entrypoint /usr/local/openresty/bin/openresty "$IMAGE" -t
@@ -71,6 +82,11 @@ test "$(status --header='Host: kole.synehq.com' http://127.0.0.1/slack/events/)"
 
 body="$(docker exec auth-proxy-test wget -qO- --header='Host: kole.synehq.com' --header='Cookie: authjs.session-token=valid-token' --header='X-User-Id: attacker' --header='X-Api-Key: attacker-key' --header='X-Team-Id: attacker-team' --header='X-Forwarded-User: attacker' --header='X-Forwarded-For: 198.51.100.7' http://127.0.0.1/)"
 test "$body" = "user=trusted-user api= team= forwarded= for=127.0.0.1"
+
+# cosmos (db_api) forwards API keys untouched, but never caller identity.
+body="$(docker exec auth-proxy-test wget -qO- --header='Host: cosmos.synehq.com' --header='X-Api-Key: sk_test' --header='X-User-Id: attacker' --header='X-Team-Id: attacker-team' http://127.0.0.1/)"
+test "$body" = "user= api=sk_test team="
+test "$(status --header='Host: cosmos.synehq.com' http://127.0.0.1/)" = "401"
 
 docker rm -f authwall-test >/dev/null
 docker run -d --name authwall-test --network "$NETWORK" --network-alias authwall -v "$TMPDIR/authwall-expired.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine >/dev/null
