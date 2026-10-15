@@ -124,6 +124,7 @@ end
 local function authenticate()
     local request_headers = ngx.req.get_headers()
     local local_bypass_value = request_headers[LOCAL_BYPASS_HEADER]
+    local api_key = request_headers["X-Api-Key"]
     require("headers").clear(LOCAL_BYPASS_HEADER)
 
     -- Slack verifies its own signature downstream. This is intentionally limited to
@@ -139,6 +140,13 @@ local function authenticate()
         and local_bypass_value == LOCAL_BYPASS_VALUE
         and (ngx.var.remote_addr == "127.0.0.1" or ngx.var.remote_addr == "::1") then
         ngx.log(ngx.WARN, "Local authentication bypass accepted")
+        return
+    end
+
+    -- Only server blocks that opt in (db_api) forward API keys. The backend
+    -- validates the key itself; the proxy asserts no caller identity for it.
+    if ngx.var.allow_api_key == "1" and type(api_key) == "string" and api_key ~= "" then
+        ngx.req.set_header("X-Api-Key", api_key)
         return
     end
 

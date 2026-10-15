@@ -44,10 +44,21 @@ server {
 }
 EOF
 
+cat >"$TMPDIR/db_api.conf" <<'EOF'
+server {
+    listen 8080;
+    location / {
+        default_type text/plain;
+        return 200 "user=$http_x_user_id api=$http_x_api_key team=$http_x_team_id";
+    }
+}
+EOF
+
 DOCKER_BUILDKIT=0 docker build --memory 512m --cpu-quota 100000 -t "$IMAGE" .
 docker network create "$NETWORK" >/dev/null
 docker run -d --cpus 0.2 --memory 96m --pids-limit 128 --name authwall-boundary-$TEST_SUFFIX --network "$NETWORK" --network-alias authwall -v "$TMPDIR/authwall.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine >/dev/null
 docker run -d --cpus 0.2 --memory 96m --pids-limit 128 --name kole-boundary-$TEST_SUFFIX --network "$NETWORK" --network-alias kole -v "$TMPDIR/kole.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine >/dev/null
+docker run -d --cpus 0.2 --memory 96m --pids-limit 128 --name db-api-boundary-$TEST_SUFFIX --network "$NETWORK" --network-alias db-api -v "$TMPDIR/db_api.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine >/dev/null
 docker run --rm --cpus 0.2 --memory 96m --pids-limit 128 --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --network "$NETWORK" "$IMAGE" -t
 docker run -d --cpus 0.2 --memory 96m --pids-limit 128 --name auth-proxy-boundary-$TEST_SUFFIX --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --network "$NETWORK" "$IMAGE" >/dev/null
 
@@ -75,6 +86,11 @@ test "$(status --header='Host: kole.synehq.com' --header='Cookie: authjs.session
 for cookie in 'authjs.session-token.1=token' 'authjs.session-token.0=a; authjs.session-token.2=b' 'authjs.session-token=a; authjs.session-token.0=b' 'authjs.session-token=a; authjs.session-token=b' 'authjs.session-token.00=a'; do
     test "$(status --header='Host: kole.synehq.com' --header="Cookie: $cookie" http://127.0.0.1:8080/)" = "401"
 done
+
+# cosmos (db_api) forwards API keys untouched, but never caller identity.
+body="$(docker exec auth-proxy-boundary-$TEST_SUFFIX wget -qO- --header='Host: cosmos.synehq.com' --header='X-Api-Key: sk_test' --header='X-User-Id: attacker' --header='X-Team-Id: attacker-team' http://127.0.0.1:8080/)"
+test "$body" = "user= api=sk_test team="
+test "$(status --header='Host: cosmos.synehq.com' http://127.0.0.1:8080/)" = "401"
 
 docker rm -f authwall-boundary-$TEST_SUFFIX >/dev/null
 docker run -d --cpus 0.2 --memory 96m --pids-limit 128 --name authwall-boundary-$TEST_SUFFIX --network "$NETWORK" --network-alias authwall -v "$TMPDIR/authwall-expired.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine >/dev/null
